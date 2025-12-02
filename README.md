@@ -1,190 +1,205 @@
 # ESP32-C3 SuperMini 小智AI固件
 
-## 板卡简介
+基于 [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) 官方固件优化，专为 ESP32-C3 SuperMini 开发板设计。
 
-ESP32-C3 SuperMini 是一款超小尺寸（22.52mm x 18mm）的开发板，适合嵌入式AI语音交互场景。
+## 硬件配置
 
-### 硬件特性
-- **芯片**: ESP32-C3FN4 (RISC-V 32位单核，160MHz)
-- **Flash**: 4MB
-- **RAM**: 400KB SRAM
-- **尺寸**: 22.52mm × 18mm (超小型)
-- **USB**: Type-C (USB Serial/JTAG)
-- **WiFi**: 2.4GHz 802.11 b/g/n
-- **蓝牙**: BLE 5.0
-- **GPIO**: 13个可用IO口
-- **板载LED**: GPIO8
-
-## 引脚配置
-
-### 默认引脚分配
-
-| 功能 | GPIO | 说明 |
+| 模块 | 型号 | 说明 |
 |------|------|------|
-| 板载LED | GPIO8 | 状态指示 |
-| BOOT按键 | GPIO9 | 多功能按键 |
-| I2S WS | GPIO4 | 音频字时钟 |
-| I2S BCK | GPIO5 | 音频位时钟 |
-| I2S DIN | GPIO6 | 麦克风数据输入 |
-| I2S DOUT | GPIO7 | 扬声器数据输出 |
-| 功放使能 | GPIO10 | 功放PA控制 |
-| WS2812 LED | GPIO2 | RGB LED（可选）|
-| I2C SDA | GPIO8 | OLED显示（复用）|
-| I2C SCL | GPIO9 | OLED显示（复用）|
-| UART TX | GPIO21 | 扩展串口 |
-| UART RX | GPIO20 | 扩展串口 |
-| ADC | GPIO0 | 电池电压检测 |
+| 主控 | ESP32-C3 SuperMini | 4MB Flash / 400KB SRAM |
+| 功放 | MAX98357A | I2S数字功放 |
+| 麦克风 | INMP441 | I2S数字麦克风 |
+| 屏幕 | ST7789 | 240x240 SPI LCD |
 
-## 功能特性
+## 接线图
 
-### ✅ 已实现
-- WiFi连接和配网
-- **离线语音唤醒**（“你好小智”，使用WN9S小型模型）
-- 板载LED状态指示
-- 按键交互（单击、长按、按住说话）
-- 电源管理（自动休眠）
-- I2C OLED显示支持（可选）
-- WS2812 RGB LED支持（可选）
-- MCP协议设备控制
-
-### ⚠️ 受限功能
-- **OTA升级**: 不支持（4MB只够single factory分区）
-- **主题/表情**: 受限（assets仅有~1.5MB）
-
-## 接线建议
-
-### 最小系统（仅WiFi语音）
+### MAX98357A 功放
 ```
-ESP32-C3 SuperMini
-├── USB Type-C → 供电 + 调试
-└── 板载LED (GPIO8) → 状态指示
+MAX98357A    ESP32-C3
+---------    --------
+VIN    -->   3.3V
+GND    -->   GND
+BCLK   -->   GPIO2
+LRC    -->   GPIO3
+DIN    -->   GPIO4
+GAIN   -->   不接(默认9dB) 或 GND(12dB)
+SD     -->   不接(默认启用)
 ```
 
-### 标准配置（带音频）
+### INMP441 麦克风
 ```
-ESP32-C3 + MAX98357A功放 + SPH0645麦克风
-├── I2S WS (GPIO4)   → LRC
-├── I2S BCK (GPIO5)  → BCLK
-├── I2S DOUT (GPIO7) → DIN (功放)
-├── I2S DIN (GPIO6)  → DOUT (麦克风)
-└── PA使能 (GPIO10)  → SD (功放)
-```
-
-### 完整配置（音频+显示）
-```
-添加SSD1306 OLED (128x64, I2C)
-├── SDA (GPIO8) → SDA
-├── SCL (GPIO9) → SCL
-├── VCC → 3.3V
-└── GND → GND
-
-注意: OLED与LED复用GPIO8，需断开LED或使用其他IO
+INMP441      ESP32-C3
+-------      --------
+VDD    -->   3.3V
+GND    -->   GND
+SCK    -->   GPIO5
+WS     -->   GPIO6
+SD     -->   GPIO7
+L/R    -->   GND (左声道)
 ```
 
-## 编译和烧录
+### ST7789 屏幕
+```
+ST7789       ESP32-C3
+------       --------
+VCC    -->   3.3V
+GND    -->   GND
+SCL    -->   GPIO1
+SDA    -->   GPIO10
+DC     -->   GPIO8
+CS     -->   GPIO0
+RST    -->   3.3V (或不接)
+BLK    -->   3.3V (常亮)
+```
 
-### 1. 环境准备
+## 安装部署
+
+### 方法一：下载预编译固件（推荐新手）
+
+1. 访问 [Releases](https://github.com/dakeqi/xiaozhi-esp32c3-supermini/releases) 下载最新固件
+2. 下载 [ESP Flash Tool](https://www.espressif.com/zh-hans/support/download/other-tools)
+3. 烧录配置：
+   - ChipType: ESP32-C3
+   - SPI Speed: 40MHz
+   - SPI Mode: DIO
+   - 地址映射：
+     ```
+     bootloader.bin      -> 0x0
+     partition-table.bin -> 0x8000
+     xiaozhi.bin         -> 0x10000
+     ```
+4. 点击 START 开始烧录
+
+### 方法二：源码编译
+
+#### 环境准备
+
 ```bash
-# 安装ESP-IDF 5.4+
-# 克隆仓库
-git clone https://github.com/78/xiaozhi-esp32.git
+# 1. 安装 ESP-IDF v5.4+
+git clone -b v5.4 --recursive https://github.com/espressif/esp-idf.git
+cd esp-idf
+./install.sh esp32c3
+source export.sh
+
+# 2. 克隆官方仓库
+git clone --recursive https://github.com/78/xiaozhi-esp32.git
 cd xiaozhi-esp32
+
+# 3. 下载板卡配置
+git clone https://github.com/dakeqi/xiaozhi-esp32c3-supermini.git board-config
+
+# 4. 复制板卡文件
+mkdir -p main/boards/esp32c3-supermini
+cp board-config/config.h main/boards/esp32c3-supermini/
+cp board-config/esp32c3_supermini_board.cc main/boards/esp32c3-supermini/
 ```
 
-### 2. 选择目标板
+#### 编译烧录
+
 ```bash
-# 设置编译目标为ESP32-C3 SuperMini
+# 设置目标芯片
 idf.py set-target esp32c3
-```
 
-### 3. 配置板卡
-```bash
+# 配置（选择 ESP32-C3 SuperMini）
 idf.py menuconfig
-# 选择: Board Options → esp32c3-supermini
+# Xiaozhi Assistant -> Board Type -> ESP32-C3 SuperMini
+
+# 编译
+idf.py build
+
+# 烧录
+idf.py -p COM3 flash
+
+# 查看日志
+idf.py -p COM3 monitor
 ```
 
-### 4. 编译
-```bash
-idf.py build -DBOARD=esp32c3-supermini
-```
+## 使用配置
 
-### 5. 烧录
-```bash
-# 自动检测端口并烧录
-idf.py flash
+### 首次配网
 
-# 或指定端口
-idf.py -p COM3 flash  # Windows
-idf.py -p /dev/ttyACM0 flash  # Linux
-```
+1. 上电后设备进入配网模式，屏幕显示配网二维码
+2. 微信扫码或使用小智APP配网
+3. 输入WiFi密码完成配网
 
-### 6. 查看日志
-```bash
-idf.py monitor
-```
+### 语音唤醒
 
-## 使用说明
+默认唤醒词：**"你好小智"**
+
+说出唤醒词后，设备进入对话模式，可以：
+- 问答对话
+- 播放音乐
+- 智能家居控制
+- 更多功能...
 
 ### 按键操作
-- **单击**: 切换聊天状态 / 重置WiFi（未连接时）
-- **按住**: 按键说话模式（需在后台启用PTT）
-- **长按**: 进入配网模式
 
-### LED指示
-- **快速闪烁**: 启动中
-- **慢速闪烁**: WiFi连接中  
-- **常亮**: 已连接，待机
-- **呼吸灯**: 就绪状态
-- **闪烁**: 正在处理
+| 操作 | 功能 |
+|------|------|
+| 短按 BOOT | 手动唤醒/停止对话 |
+| 长按 BOOT 5秒 | 重置WiFi配置 |
 
-### 省电模式
-- 默认5分钟无活动自动进入省电
-- 按任意键唤醒
-- 可在`config.h`中调整超时时间
+## 调试指南
 
-## 配置优化
+### 串口日志
 
-### 针对4MB Flash优化
-```c
-// sdkconfig中已优化:
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-CONFIG_LWIP_MAX_SOCKETS=8
-CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+```bash
+# Windows
+idf.py -p COM3 monitor
+
+# Linux/Mac
+idf.py -p /dev/ttyUSB0 monitor
 ```
 
-### 低功耗优化
-```c
-CONFIG_PM_ENABLE=y
-CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
-ENABLE_POWER_SAVE=true
-POWER_SAVE_TIMEOUT_SEC=300
-```
+### 常见问题
 
-## 常见问题
+#### 1. 没有声音
+- 检查 MAX98357A 接线是否正确
+- 确认 BCLK/LRC/DIN 三根线都已连接
+- 检查扬声器是否正常（4Ω-8Ω）
 
-**Q: 烧录后无反应？**
-A: 检查USB驱动，SuperMini使用USB Serial/JTAG，可能需要安装CH343驱动
+#### 2. 麦克风无法录音
+- 检查 INMP441 的 L/R 引脚是否接 GND
+- 确认 SCK/WS/SD 接线正确
+- 检查 VDD 是否为 3.3V
 
-**Q: 无法连接WiFi？**
-A: 单击BOOT键切换状态，长按进入配网模式
+#### 3. 屏幕不亮/显示异常
+- 确认 SPI 接线正确
+- 检查 DC 引脚是否接 GPIO8
+- 尝试调整 `DISPLAY_INVERT_COLOR` 配置
 
-**Q: 没有声音？**
-A: SuperMini需要外接I2S音频模块，请检查接线和音频codec配置
+#### 4. 无法唤醒
+- 确保环境安静，靠近麦克风说话
+- 标准普通话发音："你-好-小-智"
+- 检查串口日志是否有识别信息
 
-**Q: OLED不显示？**
-A: 确认I2C地址为0x3C，SDA/SCL接线正确，注意GPIO8与LED冲突
+#### 5. WiFi连接失败
+- 确认WiFi为2.4GHz（不支持5GHz）
+- 检查密码是否正确
+- 长按BOOT 5秒重新配网
 
-## 硬件购买
+### 引脚占用总览
 
-- 淘宝搜索: ESP32-C3 SuperMini
-- 价格: ¥8-15 (单片)
-- 推荐配套:
-  - MAX98357A I2S功放模块
-  - SPH0645 I2S麦克风  
-  - SSD1306 OLED 128x64
+| GPIO | 功能 | 模块 |
+|------|------|------|
+| 0 | CS | ST7789 |
+| 1 | SCLK | ST7789 |
+| 2 | BCLK | MAX98357A |
+| 3 | LRC | MAX98357A |
+| 4 | DIN | MAX98357A |
+| 5 | SCK | INMP441 |
+| 6 | WS | INMP441 |
+| 7 | SD | INMP441 |
+| 8 | DC | ST7789 |
+| 9 | BOOT | 按键 |
+| 10 | MOSI | ST7789 |
 
-## 技术支持
+## 相关链接
 
-- GitHub Issues: https://github.com/78/xiaozhi-esp32/issues
-- QQ群: 1011329060
-- 文档: https://ccnphfhqs21z.feishu.cn/wiki/F5krwD16viZoF0kKkvDcrZNYnhb
+- [小智官方固件](https://github.com/78/xiaozhi-esp32)
+- [小智官方服务](https://xiaozhi.me)
+- [ESP32-C3 SuperMini 资料](https://www.cnblogs.com/wuqiyang/p/18932737)
+
+## License
+
+MIT License
