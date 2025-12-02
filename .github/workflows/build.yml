@@ -1,0 +1,55 @@
+name: Build ESP32-C3 SuperMini Firmware
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout this repo
+      uses: actions/checkout@v4
+      with:
+        path: board-config
+
+    - name: Checkout xiaozhi-esp32
+      uses: actions/checkout@v4
+      with:
+        repository: 78/xiaozhi-esp32
+        path: xiaozhi-esp32
+        submodules: recursive
+
+    - name: Setup ESP-IDF
+      uses: espressif/esp-idf-ci-action@v1
+      with:
+        esp_idf_version: v5.3
+        target: esp32c3
+
+    - name: Copy board configuration
+      run: |
+        mkdir -p xiaozhi-esp32/main/boards/esp32c3-supermini
+        cp board-config/config.h xiaozhi-esp32/main/boards/esp32c3-supermini/
+        cp board-config/config.json xiaozhi-esp32/main/boards/esp32c3-supermini/
+        cp board-config/esp32c3_supermini_board.cc xiaozhi-esp32/main/boards/esp32c3-supermini/
+
+    - name: Build firmware
+      working-directory: xiaozhi-esp32
+      run: |
+        . $IDF_PATH/export.sh
+        idf.py set-target esp32c3
+        idf.py -D BOARD_TYPE=esp32c3-supermini build
+
+    - name: Upload firmware artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: esp32c3-supermini-firmware
+        path: |
+          xiaozhi-esp32/build/*.bin
+          xiaozhi-esp32/build/bootloader/*.bin
+          xiaozhi-esp32/build/partition_table/*.bin
+        retention-days: 30
