@@ -5,7 +5,7 @@ import sys
 import os
 
 def update_cmakelists(filepath):
-    with open(filepath, 'r') as f:
+    with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
     
     new_board = '''elseif(CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI)
@@ -20,12 +20,12 @@ def update_cmakelists(filepath):
             lines.insert(i, new_board.rstrip())
             break
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
     print('CMakeLists.txt updated')
 
 def update_kconfig(filepath):
-    with open(filepath, 'r') as f:
+    with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
     
     new_option = '''    config BOARD_TYPE_ESP32C3_SUPERMINI
@@ -45,7 +45,7 @@ def update_kconfig(filepath):
                 break
         content = content[:insert_pos] + new_option + content[insert_pos:]
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
     print('Kconfig.projbuild updated')
 
