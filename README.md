@@ -54,21 +54,61 @@ BLK    -->   3.3V (常亮)
 
 ## 安装部署
 
-### 方法一：下载预编译固件（推荐新手）
+### 方法一：Flash Download Tool 烧录（推荐新手）
 
-1. 访问 [Releases](https://github.com/dakeqi/xiaozhi-esp32c3-supermini/releases) 下载最新固件
-2. 下载 [ESP Flash Tool](https://www.espressif.com/zh-hans/support/download/other-tools)
-3. 烧录配置：
-   - ChipType: ESP32-C3
-   - SPI Speed: 40MHz
-   - SPI Mode: DIO
-   - 地址映射：
-     ```
-     bootloader.bin      -> 0x0
-     partition-table.bin -> 0x8000
-     xiaozhi.bin         -> 0x10000
-     ```
-4. 点击 START 开始烧录
+#### 步骤1：准备工作
+
+1. **下载固件**：访问 [Releases](https://github.com/dakeqi/xiaozhi-esp32c3-supermini/releases) 下载最新固件压缩包
+2. **下载烧录工具**：[ESP Flash Download Tool](https://www.espressif.com/zh-hans/support/download/other-tools)
+3. **安装驱动**：ESP32-C3 SuperMini 使用内置 USB-Serial，一般免驱。如无法识别请安装 [CH343驱动](http://www.wch.cn/downloads/CH343SER_EXE.html)
+
+#### 步骤2：连接设备
+
+1. 用 USB Type-C 线连接 ESP32-C3 SuperMini 到电脑
+2. 打开设备管理器，记录 COM 端口号（如 COM3）
+3. 如果未识别，按住 BOOT 键再插入 USB
+
+#### 步骤3：配置烧录工具
+
+1. 解压并运行 `flash_download_tool_x.x.x.exe`
+2. 选择芯片类型：
+   - **ChipType**: ESP32-C3
+   - **WorkMode**: Develop
+   - **LoadMode**: USB
+3. 点击 OK 进入主界面
+
+#### 步骤4：添加固件文件
+
+勾选并配置以下3个文件（从固件压缩包解压）：
+
+| 文件名 | 烧录地址 |
+|--------|----------|
+| `bootloader.bin` | `0x0` |
+| `partition-table.bin` | `0x8000` |
+| `xiaozhi.bin` | `0x10000` |
+
+**配置参数**：
+- **SPI SPEED**: 40MHz
+- **SPI MODE**: DIO
+- **COM**: 选择你的端口（如 COM3）
+- **BAUD**: 921600（速度快）或 115200（更稳定）
+
+#### 步骤5：开始烧录
+
+1. 点击 **ERASE** 清除Flash（首次烧录建议执行）
+2. 等待擦除完成
+3. 点击 **START** 开始烧录
+4. 等待进度条完成，显示 "FINISH" 表示成功
+5. 按 RST 键或重新插拔 USB 重启设备
+
+#### 烧录失败排查
+
+| 问题 | 解决方案 |
+|------|----------|
+| 无法连接 | 按住BOOT键再点START |
+| 下载超时 | 降低波特率到115200 |
+| 校验失败 | 重新下载固件文件 |
+| 端口被占用 | 关闭串口监视器 |
 
 ### 方法二：源码编译
 
