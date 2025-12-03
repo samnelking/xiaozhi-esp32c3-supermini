@@ -47,14 +47,23 @@ jobs:
       run: |
         source ~/esp-idf/export.sh
         cd xiaozhi-esp32
-        idf.py set-target esp32c3
+        
+        # 先准备sdkconfig.defaults
         cp sdkconfig.defaults.esp32c3 sdkconfig.defaults 2>/dev/null || true
         echo "CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y" >> sdkconfig.defaults
-        # 4MB Flash configuration for SuperMini
-        echo "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y" >> sdkconfig.defaults
-        echo "CONFIG_ESPTOOLPY_FLASHSIZE=\"4MB\"" >> sdkconfig.defaults
-        echo "CONFIG_PARTITION_TABLE_CUSTOM=y" >> sdkconfig.defaults
-        echo "CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"partitions/v2/4m.csv\"" >> sdkconfig.defaults
+        
+        # 设置目标芯片
+        idf.py set-target esp32c3
+        
+        # 在set-target之后直接修改sdkconfig（关键！）
+        echo "" >> sdkconfig
+        echo "# 4MB Flash for ESP32-C3 SuperMini" >> sdkconfig
+        echo "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y" >> sdkconfig
+        echo 'CONFIG_ESPTOOLPY_FLASHSIZE="4MB"' >> sdkconfig
+        echo "CONFIG_PARTITION_TABLE_CUSTOM=y" >> sdkconfig
+        echo 'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv"' >> sdkconfig
+        
+        # 重新配置并构建
         idf.py reconfigure
         idf.py build
       timeout-minutes: 60
