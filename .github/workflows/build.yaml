@@ -32,20 +32,20 @@ jobs:
             python3 board-config/scripts/setup_board.py xiaozhi-esp32/main
           fi
 
-      - name: Fix source code issues BEFORE ESP-IDF setup
+      - name: Fix source code issues
         run: |
-          echo "=== 在 ESP-IDF 设置前执行修复 ==="
+          echo "=== 执行所有必要的源码修复 ==="
           cd xiaozhi-esp32
           
           # 1. 修复文件名错误
           if [ -f "CMaket.lsts.txt" ]; then
-            echo "修复: CMaket.lsts.txt -> CMakeLists.txt"
+            echo "修复文件名: CMaket.lsts.txt -> CMakeLists.txt"
             mv "CMaket.lsts.txt" "CMakeLists.txt"
           fi
           
           # 2. 创建必需的文件
           if [ ! -f "OkNetists.txt" ]; then
-            echo "创建: OkNetists.txt"
+            echo "创建必需文件: OkNetists.txt"
             echo "# Auto-generated for build system" > OkNetists.txt
           fi
           
@@ -60,42 +60,55 @@ jobs:
           fi
           
           # 4. 验证修复结果
-          echo -e "\n验证关键文件:"
-          ls -la CMakeLists.txt OkNetists.txt idf.py 2>/dev/null && echo "✅ 关键文件就绪" || echo "❌ 文件缺失"
+          echo -e "\n验证修复结果:"
+          ls -la CMakeLists.txt OkNetists.txt idf.py 2>/dev/null && echo "✅ 所有关键文件都存在" || echo "❌ 关键文件缺失"
 
-      # 关键修改：禁用自动构建，只设置环境
-      - name: Setup ESP-IDF Environment (NO AUTO-BUILD)
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.4
-          target: esp32c3
-          build: false  # 关键参数：禁用自动构建
+      # 关键修改：使用标准方式安装 ESP-IDF，而不是官方 Action
+      - name: Install ESP-IDF v5.4
+        run: |
+          echo "=== 安装 ESP-IDF v5.4 ==="
+          sudo apt-get update
+          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+          
+          # 安装到 /opt/esp-idf 目录
+          mkdir -p /opt
+          cd /opt
+          git clone -b v5.4 --depth 1 https://github.com/espressif/esp-idf.git
+          cd esp-idf
+          ./install.sh esp32c3
+          
+          # 设置环境变量
+          echo "IDF_PATH=/opt/esp-idf" >> $GITHUB_ENV
+          echo "PATH=/opt/esp-idf/tools:$PATH" >> $GITHUB_ENV
 
       - name: Build Firmware
         run: |
           echo "=== 开始构建固件 ==="
           
-          # 确定项目目录
-          PROJECT_DIR="${{ github.workspace }}/xiaozhi-esp32"
-          echo "项目目录: $PROJECT_DIR"
-          cd "$PROJECT_DIR"
+          # 进入项目目录
+          cd ${{ github.workspace }}/xiaozhi-esp32
+          echo "当前目录: $(pwd)"
           
-          # 最终验证
-          echo -e "\n最终验证:"
+          # 验证关键文件
+          echo -e "\n验证关键文件:"
           if [ -f "CMakeLists.txt" ] && [ -f "OkNetists.txt" ] && [ -f "idf.py" ]; then
             echo "✅ 所有必需文件都存在"
           else
-            echo "❌ 缺少必需文件，无法继续"
+            echo "❌ 缺少必需文件:"
             ls -la CMakeLists.txt OkNetists.txt idf.py 2>/dev/null || true
             exit 1
           fi
           
+          # 设置 ESP-IDF 环境
+          echo -e "\n设置 ESP-IDF 环境..."
+          . /opt/esp-idf/export.sh
+          
           # 清理旧构建
-          echo -e "\n清理旧构建..."
+          echo "清理旧构建..."
           rm -rf build sdkconfig
           
           # 设置目标芯片
-          echo "设置目标: esp32c3"
+          echo "设置目标芯片: esp32c3"
           idf.py set-target esp32c3
           
           # 应用自定义配置
@@ -117,11 +130,12 @@ jobs:
           echo "CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y" >> sdkconfig
           echo "CONFIG_COMPILER_WARNINGS_AS_ERRORS=n" >> sdkconfig
           
-          # 重新配置并构建
+          # 重新配置
           echo -e "\n重新配置项目..."
           idf.py reconfigure
           
-          echo -e "\n开始构建..."
+          # 开始构建
+          echo "开始构建..."
           idf.py build
           
           # 验证构建结果
