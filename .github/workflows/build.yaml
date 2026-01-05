@@ -37,33 +37,53 @@ jobs:
           echo "=== 执行所有必要的源码修复 ==="
           cd xiaozhi-esp32
           
-          # 1. 修复文件名错误
-          if [ -f "CMaket.lsts.txt" ]; then
+          # 1. 首先列出当前目录文件，查看真实情况
+          echo "当前目录文件列表:"
+          ls -la | grep -E "(CMake|OkNet|idf)" || echo "未找到相关文件"
+          
+          # 2. 修复文件名错误 - 使用精确匹配
+          if ls | grep -q "CMaket.lsts.txt"; then
             echo "修复文件名: CMaket.lsts.txt -> CMakeLists.txt"
             mv "CMaket.lsts.txt" "CMakeLists.txt"
           fi
           
-          # 2. 创建必需的文件
-          if [ ! -f "OkNetists.txt" ]; then
-            echo "创建必需文件: OkNetists.txt"
-            echo "# Auto-generated for build system" > OkNetists.txt
+          # 3. 如果 CMakeLists.txt 不存在，检查是否有其他变体
+          if [ ! -f "CMakeLists.txt" ]; then
+            echo "CMakeLists.txt 不存在，尝试查找其他版本..."
+            find . -name "*CMake*" -type f | head -10
           fi
           
-          # 3. 修复源码问题
+          # 4. 创建必需的文件
+          echo "创建必需文件: OkNetists.txt"
+          echo "# Auto-generated for build system" > OkNetists.txt
+          
+          # 5. 修复源码问题
           FILE="managed_components/espressif2022__esp_emote_gfx/src/core/gfx_refr.c"
           if [ -f "$FILE" ]; then
             echo "修复源码格式字符串: $FILE"
+            # 备份原文件
+            cp "$FILE" "${FILE}.backup"
             sed -i '117s/"Merged area \[%d\] into \[%d\], saved %lu pixels"/"Merged area [%lu] into [%lu], saved %lu pixels"/' "$FILE"
             if ! grep -q '#include <string.h>' "$FILE"; then
               sed -i '/#include <stdlib.h>/a #include <string.h>' "$FILE"
             fi
+          else
+            echo "警告: 未找到文件 $FILE"
+            # 尝试查找该文件
+            find . -name "gfx_refr.c" -type f | head -5
           fi
           
-          # 4. 验证修复结果
+          # 6. 验证修复结果
           echo -e "\n验证修复结果:"
-          ls -la CMakeLists.txt OkNetists.txt idf.py 2>/dev/null && echo "✅ 所有关键文件都存在" || echo "❌ 关键文件缺失"
+          echo "关键文件检查:"
+          for file in CMakeLists.txt OkNetists.txt idf.py; do
+            if [ -f "$file" ]; then
+              echo "✅ $file 存在"
+            else
+              echo "❌ $file 不存在"
+            fi
+          done
 
-      # 关键修改：使用标准方式安装 ESP-IDF，而不是官方 Action
       - name: Install ESP-IDF v5.4
         run: |
           echo "=== 安装 ESP-IDF v5.4 ==="
@@ -86,16 +106,32 @@ jobs:
           echo "=== 开始构建固件 ==="
           
           # 进入项目目录
-          cd ${{ github.workspace }}/xiaozhi-esp32
+          PROJECT_DIR="${{ github.workspace }}/xiaozhi-esp32"
+          cd "$PROJECT_DIR"
           echo "当前目录: $(pwd)"
           
-          # 验证关键文件
+          # 验证关键文件 - 使用更详细的检查
           echo -e "\n验证关键文件:"
-          if [ -f "CMakeLists.txt" ] && [ -f "OkNetists.txt" ] && [ -f "idf.py" ]; then
-            echo "✅ 所有必需文件都存在"
-          else
-            echo "❌ 缺少必需文件:"
-            ls -la CMakeLists.txt OkNetists.txt idf.py 2>/dev/null || true
+          echo "当前目录内容:"
+          ls -la | head -20
+          
+          echo -e "\n检查特定文件:"
+          REQUIRED_FILES=("CMakeLists.txt" "OkNetists.txt" "idf.py")
+          ALL_EXIST=true
+          
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              echo "✅ $file 存在"
+            else
+              echo "❌ $file 不存在"
+              ALL_EXIST=false
+            fi
+          done
+          
+          if [ "$ALL_EXIST" = false ]; then
+            echo -e "\n错误: 缺少必需文件"
+            echo "尝试查找 CMakeLists.txt 的变体:"
+            find . -name "*CMake*" -type f 2>/dev/null || true
             exit 1
           fi
           
@@ -113,22 +149,26 @@ jobs:
           
           # 应用自定义配置
           echo -e "\n应用自定义配置..."
-          echo "" >> sdkconfig
-          echo "# Append for ESP32-C3 SuperMini" >> sdkconfig
-          echo "CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y" >> sdkconfig
-          echo "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y" >> sdkconfig
-          echo 'CONFIG_ESPTOOLPY_FLASHSIZE="4MB"' >> sdkconfig
-          echo "CONFIG_PARTITION_TABLE_CUSTOM=y" >> sdkconfig
-          echo 'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv"' >> sdkconfig
-          echo "CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3" >> sdkconfig
-          echo "CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4" >> sdkconfig
-          echo "CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n" >> sdkconfig
-          echo "CONFIG_ESP_WIFI_RX_BA_WIN=4" >> sdkconfig
-          echo "CONFIG_COMPILER_OPTIMIZATION_SIZE=y" >> sdkconfig
-          echo "# CONFIG_WAKE_WORD_DISABLED is not set" >> sdkconfig
-          echo "CONFIG_USE_ESP_WAKE_WORD=y" >> sdkconfig
-          echo "CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y" >> sdkconfig
-          echo "CONFIG_COMPILER_WARNINGS_AS_ERRORS=n" >> sdkconfig
+          CONFIG_FILE="sdkconfig"
+          
+          # 清除文件并重新写入，确保格式正确
+          cat > "$CONFIG_FILE" << 'CONFIG_EOF'
+# Append for ESP32-C3 SuperMini
+CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv"
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+CONFIG_ESP_WIFI_RX_BA_WIN=4
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+# CONFIG_WAKE_WORD_DISABLED is not set
+CONFIG_USE_ESP_WAKE_WORD=y
+CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y
+CONFIG_COMPILER_WARNINGS_AS_ERRORS=n
+CONFIG_EOF
           
           # 重新配置
           echo -e "\n重新配置项目..."
@@ -143,9 +183,11 @@ jobs:
           if [ -f "build/xiaozhi.bin" ]; then
             echo "✅ 固件构建成功！"
             echo "生成的文件:"
-            ls -lh build/xiaozhi.bin build/generated_assets.bin 2>/dev/null || true
+            find build -name "*.bin" -type f | head -10
           else
             echo "❌ 构建失败: 未找到 xiaozhi.bin"
+            echo "构建目录内容:"
+            ls -la build/ 2>/dev/null || echo "构建目录不存在"
             exit 1
           fi
 
