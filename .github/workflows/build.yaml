@@ -32,70 +32,10 @@ jobs:
             python3 board-config/scripts/setup_board.py xiaozhi-esp32/main
           fi
 
+      # 使用上面的增强版修复步骤替换此处
       - name: Fix source code issues
         run: |
-          echo "=== 执行所有必要的源码修复 ==="
-          cd xiaozhi-esp32
-          
-          # 1. 列出当前目录文件，查看真实情况
-          echo "当前目录文件列表:"
-          ls -la | grep -E "(CMake|OkNet)" || echo "未找到相关文件"
-          
-          # 2. 修复文件名错误
-          if ls | grep -q "CMaket.lsts.txt"; then
-            echo "修复文件名: CMaket.lsts.txt -> CMakeLists.txt"
-            mv "CMaket.lsts.txt" "CMakeLists.txt"
-          fi
-          
-          # 3. 创建必需的文件
-          echo "创建必需文件: OkNetists.txt"
-          echo "# Auto-generated for build system" > OkNetists.txt
-          
-          # ========== 关键修复部分开始 ==========
-          # 4. 修复源码问题 - 使用精确的行号匹配
-          FILE="managed_components/espressif2022__esp_emote_gfx/src/core/gfx_refr.c"
-          if [ -f "$FILE" ]; then
-            echo "正在修复文件: $FILE"
-            
-            # 备份原文件
-            cp "$FILE" "${FILE}.backup"
-            
-            # 查看第117行原始内容
-            echo "第117行原始内容:"
-            sed -n '117p' "$FILE"
-            
-            # 关键：使用精确的行号替换，不使用复杂的模式匹配
-            # 直接修改第117行，将%d替换为%lu
-            sed -i '117s/%d/%lu/g' "$FILE"
-            
-            # 再次查看第117行修复后内容
-            echo "第117行修复后内容:"
-            sed -n '117p' "$FILE"
-            
-            # 确保string.h头文件存在
-            if ! grep -q '#include <string.h>' "$FILE"; then
-              echo "添加缺失的string.h头文件"
-              sed -i '/#include <stdlib.h>/a #include <string.h>' "$FILE"
-            fi
-            
-            echo "✅ 文件修复完成"
-          else
-            echo "❌ 警告: 未找到文件 $FILE"
-            # 尝试查找该文件
-            find . -name "gfx_refr.c" -type f 2>/dev/null | head -5
-          fi
-          # ========== 关键修复部分结束 ==========
-          
-          # 5. 验证修复结果
-          echo -e "\n验证修复结果:"
-          echo "关键文件检查:"
-          for file in CMakeLists.txt OkNetists.txt; do
-            if [ -f "$file" ]; then
-              echo "✅ $file 存在"
-            else
-              echo "❌ $file 不存在"
-            fi
-          done
+          # 粘贴上面增强版的修复代码
 
       - name: Install ESP-IDF v5.4
         run: |
