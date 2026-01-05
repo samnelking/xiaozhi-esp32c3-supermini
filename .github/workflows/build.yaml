@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout board configuration
         uses: actions/checkout@v4
@@ -31,49 +32,74 @@ jobs:
             python3 board-config/scripts/setup_board.py xiaozhi-esp32/main
           fi
 
-      - name: Setup ESP-IDF Environment
-        # 关键：使用官方Action，并明确指定工作目录
+      - name: Fix source code issues BEFORE ESP-IDF setup
+        run: |
+          echo "=== 在 ESP-IDF 设置前执行修复 ==="
+          cd xiaozhi-esp32
+          
+          # 1. 修复文件名错误
+          if [ -f "CMaket.lsts.txt" ]; then
+            echo "修复: CMaket.lsts.txt -> CMakeLists.txt"
+            mv "CMaket.lsts.txt" "CMakeLists.txt"
+          fi
+          
+          # 2. 创建必需的文件
+          if [ ! -f "OkNetists.txt" ]; then
+            echo "创建: OkNetists.txt"
+            echo "# Auto-generated for build system" > OkNetists.txt
+          fi
+          
+          # 3. 修复源码问题
+          FILE="managed_components/espressif2022__esp_emote_gfx/src/core/gfx_refr.c"
+          if [ -f "$FILE" ]; then
+            echo "修复源码格式字符串: $FILE"
+            sed -i '117s/"Merged area \[%d\] into \[%d\], saved %lu pixels"/"Merged area [%lu] into [%lu], saved %lu pixels"/' "$FILE"
+            if ! grep -q '#include <string.h>' "$FILE"; then
+              sed -i '/#include <stdlib.h>/a #include <string.h>' "$FILE"
+            fi
+          fi
+          
+          # 4. 验证修复结果
+          echo -e "\n验证关键文件:"
+          ls -la CMakeLists.txt OkNetists.txt idf.py 2>/dev/null && echo "✅ 关键文件就绪" || echo "❌ 文件缺失"
+
+      # 关键修改：禁用自动构建，只设置环境
+      - name: Setup ESP-IDF Environment (NO AUTO-BUILD)
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.4
           target: esp32c3
+          build: false  # 关键参数：禁用自动构建
 
       - name: Build Firmware
-        # 关键：所有的构建前准备和构建都集中在这个步骤，确保路径正确
         run: |
-          echo "=== 步骤 1: 进入项目目录并验证 ==="
-          cd ${{ github.workspace }}/xiaozhi-esp32
-          echo "当前目录: $(pwd)"
-          ls -la CMakeLists.txt idf.py 2>/dev/null && echo "✅ 项目文件存在" || echo "❌ 关键文件缺失"
-
-          echo -e "\n=== 步骤 2: 执行关键修复 ==="
-          # 修复1: 纠正CMakeLists.txt文件名
-          if [ -f "CMaket.lsts.txt" ]; then
-            echo "修复文件名: CMaket.lsts.txt -> CMakeLists.txt"
-            mv "CMaket.lsts.txt" "CMakeLists.txt"
+          echo "=== 开始构建固件 ==="
+          
+          # 确定项目目录
+          PROJECT_DIR="${{ github.workspace }}/xiaozhi-esp32"
+          echo "项目目录: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+          
+          # 最终验证
+          echo -e "\n最终验证:"
+          if [ -f "CMakeLists.txt" ] && [ -f "OkNetists.txt" ] && [ -f "idf.py" ]; then
+            echo "✅ 所有必需文件都存在"
+          else
+            echo "❌ 缺少必需文件，无法继续"
+            ls -la CMakeLists.txt OkNetists.txt idf.py 2>/dev/null || true
+            exit 1
           fi
           
-          # 修复2: 创建缺失的OkNetists.txt文件
-          if [ ! -f "OkNetists.txt" ]; then
-            echo "创建缺失的 OkNetists.txt 文件"
-            echo "# Auto-generated for build" > OkNetists.txt
-          fi
-          
-          # 修复3: 修复源码格式字符串和头文件
-          FILE_PATH="managed_components/espressif2022__esp_emote_gfx/src/core/gfx_refr.c"
-          if [ -f "$FILE_PATH" ]; then
-            echo "修复源码: $FILE_PATH"
-            sed -i '117s/"Merged area \[%d\] into \[%d\], saved %lu pixels"/"Merged area [%lu] into [%lu], saved %lu pixels"/' "$FILE_PATH"
-            if ! grep -q '#include <string.h>' "$FILE_PATH"; then
-              sed -i '/#include <stdlib.h>/a #include <string.h>' "$FILE_PATH"
-            fi
-          fi
-
-          echo -e "\n=== 步骤 3: 清理并设置构建目标 ==="
+          # 清理旧构建
+          echo -e "\n清理旧构建..."
           rm -rf build sdkconfig
+          
+          # 设置目标芯片
+          echo "设置目标: esp32c3"
           idf.py set-target esp32c3
           
-          echo -e "\n=== 步骤 4: 应用自定义配置 ==="
+          # 应用自定义配置
+          echo -e "\n应用自定义配置..."
           echo "" >> sdkconfig
           echo "# Append for ESP32-C3 SuperMini" >> sdkconfig
           echo "CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y" >> sdkconfig
@@ -90,18 +116,22 @@ jobs:
           echo "CONFIG_USE_ESP_WAKE_WORD=y" >> sdkconfig
           echo "CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y" >> sdkconfig
           echo "CONFIG_COMPILER_WARNINGS_AS_ERRORS=n" >> sdkconfig
-
-          echo -e "\n=== 步骤 5: 重新配置并构建 ==="
+          
+          # 重新配置并构建
+          echo -e "\n重新配置项目..."
           idf.py reconfigure
+          
+          echo -e "\n开始构建..."
           idf.py build
           
-          echo -e "\n=== 步骤 6: 验证构建结果 ==="
+          # 验证构建结果
+          echo -e "\n验证构建结果..."
           if [ -f "build/xiaozhi.bin" ]; then
             echo "✅ 固件构建成功！"
-            echo "生成文件大小:"
-            ls -lh build/xiaozhi.bin
+            echo "生成的文件:"
+            ls -lh build/xiaozhi.bin build/generated_assets.bin 2>/dev/null || true
           else
-            echo "❌ 构建失败：未找到输出文件 xiaozhi.bin"
+            echo "❌ 构建失败: 未找到 xiaozhi.bin"
             exit 1
           fi
 
@@ -109,10 +139,10 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ github.run_number }}
+          name: esp32c3-supermini-firmware
           path: |
             xiaozhi-esp32/build/xiaozhi.bin
+            xiaozhi-esp32/build/generated_assets.bin
             xiaozhi-esp32/build/bootloader/bootloader.bin
             xiaozhi-esp32/build/partition_table/partition-table.bin
-            xiaozhi-esp32/build/generated_assets.bin
-          retention-days: 7
+          retention-days: 30
