@@ -36,20 +36,64 @@ jobs:
         cp board-config/esp32c3_supermini_board.cc xiaozhi-esp32/main/boards/esp32c3-supermini/
         python3 board-config/scripts/setup_board.py xiaozhi-esp32/main
 
-    - name: Fix compilation warnings（扩展修复范围，可选）
+    - name: Fix compilation warnings (覆盖图形/字体组件)
       run: |
-        echo "=== 修复格式字符串问题 ==="
-        # 扩展修复文件列表，覆盖所有报错文件
-        TARGET_FILES=("gfx_refr.c" "log_xmdec.c" "gfx_timer.c" "font_puhui_30_4.c")
+        echo "=== 修复所有报错文件的格式符问题 ==="
+        # 1. 定义需要修复的文件列表（新增 gfx_obj.c 和 font_puhui_30_4.c）
+        TARGET_FILES=(
+          "gfx_refr.c"        # 原修复文件
+          "gfx_obj.c"         # esp_emote_gfx 组件报错文件
+          "font_puhui_30_4.c" # xiaozhi-fonts 组件报错文件
+        )
+        
         for file_pattern in "${TARGET_FILES[@]}"; do
-          find xiaozhi-esp32 -name "$file_pattern" -type f | while read file; do
-            echo "处理文件: $file"
-            # 修复格式符 %d → %lu（避免类型不匹配警告）
-            sed -i 's/\[%d\]/\[%lu\]/g' "$file"
-            sed -i '/Merged area/s/%d/%lu/g' "$file"
-            sed -i '/Merged area/s/\$iu/%lu/g' "$file"
+          # 递归查找组件目录下的目标文件
+          find xiaozhi-esp32 -name "$file_pattern" -type f | while read -r found_file; do
+            echo "=== 处理文件: $found_file ==="
+            
+            # 修复1：添加 inttypes.h 头文件（PRI宏依赖，避免类型匹配警告）
+            if ! grep -q "#include <<inttypes.h>" "$found_file"; then
+              # 在文件开头插入头文件（兼容 C 语言语法）
+              sed -i '1i#include <<inttypes.h>' "$found_file"
+              echo "✅ 已添加 #include <<inttypes.h>"
+            fi
+            
+            # 修复2：格式符类型匹配（%d→%" PRId32，%lu→%" PRIul，参考摘要5的官方建议）
+            # 处理普通格式符（如 "value: %d" → "value: %" PRId32）
+            sed -i 's/%d/%" PRId32/g' "$found_file"
+            sed -i 's/%lu/%" PRIul/g' "$found_file"
+            # 处理数组索引（如 "[%d]" → "[%" PRId32 "]"）
+            sed -i 's/\[%d\]/[%"" PRId32]/g' "$found_file"
+            sed -i 's/\[%lu\]/[%"" PRIul]/g' "$found_file"
+            # 处理笔误（如 $iu→%" PRIul，之前发现的问题）
+            sed -i 's/\$iu/%" PRIul/g' "$found_file"
+            
+            # 验证修复结果（打印关键行，便于调试）
+            echo "修复后的格式符预览："
+            grep -E '%" PRI|inttypes.h' "$found_file" || echo "无相关行"
           done
         done
+        echo "=== 所有文件修复完成 ==="
+
+    - name: Fix esp_emote_gfx compatibility (ESP32-C3 适配)
+      run: |
+        echo "=== 修复图形组件 API 兼容性 ==="
+        # 查找 esp_emote_gfx 组件的源文件
+        GFX_SRC_DIR=$(find xiaozhi-esp32 -path "*/espressif2022__esp_emote_gfx/src" -type d)
+        if [ -n "$GFX_SRC_DIR" ]; then
+          echo "找到图形组件目录: $GFX_SRC_DIR"
+          
+          # 修复1：替换 ESP32 专属头文件（如 esp_efuse_table.h → esp_efuse.h，参考摘要6）
+          find "$GFX_SRC_DIR" -name "*.c" -o -name "*.h" | xargs sed -i 's/#include "esp_efuse_table.h"/#include "esp_efuse.h"/g'
+          
+          # 修复2：替换旧版 I2S API（若组件用了旧驱动，参考摘要6）
+          find "$GFX_SRC_DIR" -name "*.c" | xargs sed -i 's/#include "driver/i2s.h"/#include "driver/i2s_std.h"/g'
+          
+          # 修复3：禁用 ESP32 专属配置（如多核相关，ESP32-C3 是单核）
+          find "$GFX_SRC_DIR" -name "CMakeLists.txt" | xargs sed -i 's/CONFIG_FREERTOS_USE_CORE_AFFINITY//g'
+        else
+          echo "未找到 esp_emote_gfx 组件目录，跳过适配"
+        fi
 
     - name: Install ESP-IDF
       run: |
@@ -63,54 +107,49 @@ jobs:
         ./install.sh esp32c3
       timeout-minutes: 30
 
-    - name: Build firmware（核心修复步骤）
+    - name: Build firmware (清理缓存 + 详细日志)
       id: build
       run: |
         export IDF_PATH=~/esp/esp-idf
-        if [ -f "$IDF_PATH/export.sh" ]; then
-          . $IDF_PATH/export.sh
-        else
-          source $IDF_PATH/python_env/bin/activate
-          export PATH="$IDF_PATH/tools:$PATH"
-        fi
-        
+        . "$IDF_PATH/export.sh" || { echo "激活环境失败"; exit 1; }
         cd xiaozhi-esp32
+        
+        # 关键：彻底清理旧构建（避免缓存干扰，参考摘要3）
+        idf.py fullclean
         rm -rf sdkconfig build/
+        
+        # 设置目标芯片
         idf.py set-target esp32c3
         
-        # 用CMake参数控制警告，传递配置项
+        # 用 CMake 参数传递配置（替代无效的 sdkconfig 追加，参考之前的修复）
         idf.py reconfigure \
-          -DCMAKE_C_FLAGS="-w" \
-          -DCMAKE_CXX_FLAGS="-w" \
+          -DCMAKE_C_FLAGS="-Wall -Wno-error" \ # 保留警告但不中断编译（便于调试）
+          -DCMAKE_CXX_FLAGS="-Wall -Wno-error" \
           -DCONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y \
           -DCONFIG_ESPTOOLPY_FLASHSIZE_4MB=y \
-          -DCONFIG_ESPTOOLPY_FLASHSIZE="4MB" \
           -DCONFIG_PARTITION_TABLE_CUSTOM=y \
           -DCONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv" \
           -DCONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3 \
           -DCONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4 \
-          -DCONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n \
-          -DCONFIG_ESP_WIFI_RX_BA_WIN=4 \
-          -DCONFIG_COMPILER_OPTIMIZATION_SIZE=y \
-          -DCONFIG_WAKE_WORD_DISABLED=n \
           -DCONFIG_USE_ESP_WAKE_WORD=y \
           -DCONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y
         
-        # 无 --no-warnings-as-errors 选项
-        idf.py -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build
+        # 构建时启用详细日志（-v 选项），输出具体错误行
+        echo "开始构建（启用详细日志）..."
+        idf.py -v -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build
         
+        # 校验固件（不变）
         if [ -f "build/xiaozhi.bin" ]; then
-          echo "构建成功!"
-          SIZE=$(du -h build/xiaozhi.bin | cut -f1)
-          echo "size=$SIZE" >> $GITHUB_OUTPUT
+          echo "构建成功! 固件大小: $(du -h build/xiaozhi.bin | cut -f1)"
+          echo "size=$(du -h build/xiaozhi.bin | cut -f1)" >> "$GITHUB_OUTPUT"
         else
-          echo "构建失败!"
+          echo "构建失败! 查看详细日志: build/log/idf_py_stderr_output_*"
           exit 1
         fi
         
-        # 日志路径修复
+        # 收集日志（路径规范，避免 Artifact 错误）
         mkdir -p build-logs
-        cp -r build/log/* build-logs/ 2>/dev/null || true
+        cp -r build/log/* build-logs/ 2>/dev/null
 
     - name: Create firmware package
       run: |
