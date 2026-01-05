@@ -67,7 +67,17 @@ jobs:
 
       - name: Build Firmware
         run: |
-          cd xiaozhi-esp32
+          # 确保进入正确的项目目录（这是关键！）
+          cd ${{ github.workspace }}/xiaozhi-esp32
+          echo "当前工作目录: $(pwd)"
+          
+          # 验证是否在正确的项目中（检查是否存在idf.py）
+          if [ ! -f "idf.py" ]; then
+            echo "错误：未在$(pwd)目录中找到idf.py！"
+            echo "目录内容："
+            ls -la
+            exit 1
+          fi
           
           # 清理之前的构建
           rm -rf sdkconfig build/
@@ -96,11 +106,18 @@ jobs:
           echo "CONFIG_USE_ESP_WAKE_WORD=y" >> sdkconfig
           echo "CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y" >> sdkconfig
           
-          # 关键：禁用将警告视为错误，允许构建完成
+          # 关键：禁用将警告视为错误
           echo "CONFIG_COMPILER_WARNINGS_AS_ERRORS=n" >> sdkconfig
           
           # 重新生成配置并构建
           idf.py reconfigure
+          
+          # 构建前检查是否存在OkNetists.txt（如果是必要文件）
+          if [ ! -f "OkNetists.txt" ]; then
+            echo "提示：未找到OkNetists.txt，尝试创建空文件继续构建..."
+            touch OkNetists.txt
+          fi
+          
           idf.py build
           
           # 验证输出
