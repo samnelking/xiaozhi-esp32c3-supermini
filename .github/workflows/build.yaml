@@ -37,43 +37,56 @@ jobs:
           echo "=== 执行所有必要的源码修复 ==="
           cd xiaozhi-esp32
           
-          # 1. 首先列出当前目录文件，查看真实情况
+          # 1. 列出当前目录文件，查看真实情况
           echo "当前目录文件列表:"
           ls -la | grep -E "(CMake|OkNet)" || echo "未找到相关文件"
           
-          # 2. 修复文件名错误 - 使用精确匹配
+          # 2. 修复文件名错误
           if ls | grep -q "CMaket.lsts.txt"; then
             echo "修复文件名: CMaket.lsts.txt -> CMakeLists.txt"
             mv "CMaket.lsts.txt" "CMakeLists.txt"
           fi
           
-          # 3. 如果 CMakeLists.txt 不存在，检查是否有其他变体
-          if [ ! -f "CMakeLists.txt" ]; then
-            echo "CMakeLists.txt 不存在，尝试查找其他版本..."
-            find . -name "*CMake*" -type f | head -10
-          fi
-          
-          # 4. 创建必需的文件
+          # 3. 创建必需的文件
           echo "创建必需文件: OkNetists.txt"
           echo "# Auto-generated for build system" > OkNetists.txt
           
-          # 5. 修复源码问题
+          # ========== 关键修复部分开始 ==========
+          # 4. 修复源码问题 - 使用精确的行号匹配
           FILE="managed_components/espressif2022__esp_emote_gfx/src/core/gfx_refr.c"
           if [ -f "$FILE" ]; then
-            echo "修复源码格式字符串: $FILE"
+            echo "正在修复文件: $FILE"
+            
             # 备份原文件
             cp "$FILE" "${FILE}.backup"
-            sed -i '117s/"Merged area \[%d\] into \[%d\], saved %lu pixels"/"Merged area [%lu] into [%lu], saved %lu pixels"/' "$FILE"
+            
+            # 查看第117行原始内容
+            echo "第117行原始内容:"
+            sed -n '117p' "$FILE"
+            
+            # 关键：使用精确的行号替换，不使用复杂的模式匹配
+            # 直接修改第117行，将%d替换为%lu
+            sed -i '117s/%d/%lu/g' "$FILE"
+            
+            # 再次查看第117行修复后内容
+            echo "第117行修复后内容:"
+            sed -n '117p' "$FILE"
+            
+            # 确保string.h头文件存在
             if ! grep -q '#include <string.h>' "$FILE"; then
+              echo "添加缺失的string.h头文件"
               sed -i '/#include <stdlib.h>/a #include <string.h>' "$FILE"
             fi
+            
+            echo "✅ 文件修复完成"
           else
-            echo "警告: 未找到文件 $FILE"
+            echo "❌ 警告: 未找到文件 $FILE"
             # 尝试查找该文件
-            find . -name "gfx_refr.c" -type f | head -5
+            find . -name "gfx_refr.c" -type f 2>/dev/null | head -5
           fi
+          # ========== 关键修复部分结束 ==========
           
-          # 6. 验证修复结果（修正：idf.py 不在项目目录是正常的）
+          # 5. 验证修复结果
           echo -e "\n验证修复结果:"
           echo "关键文件检查:"
           for file in CMakeLists.txt OkNetists.txt; do
@@ -83,9 +96,6 @@ jobs:
               echo "❌ $file 不存在"
             fi
           done
-          
-          # idf.py 在 ESP-IDF 安装目录，不在项目目录
-          echo "ℹ️ idf.py 应该在 ESP-IDF 安装目录 (/opt/esp-idf/tools/)"
 
       - name: Install ESP-IDF v5.4
         run: |
@@ -113,7 +123,7 @@ jobs:
           cd "$PROJECT_DIR"
           echo "当前目录: $(pwd)"
           
-          # 验证关键文件 - 修正：不再检查 idf.py
+          # 验证关键文件
           echo -e "\n验证关键文件:"
           echo "当前目录内容:"
           ls -la | head -20
@@ -131,14 +141,14 @@ jobs:
             fi
           done
           
-          # 检查 idf.py 是否在 PATH 中可用
-          echo -e "\n检查 idf.py 命令可用性:"
+          # 检查idf.py命令可用性
+          echo -e "\n检查idf.py命令可用性:"
           if command -v idf.py >/dev/null 2>&1; then
-            echo "✅ idf.py 命令可用"
-            echo "idf.py 位置: $(which idf.py)"
+            echo "✅ idf.py命令可用"
+            echo "idf.py位置: $(which idf.py)"
           else
-            echo "❌ idf.py 命令不可用"
-            echo "PATH 环境变量: $PATH"
+            echo "❌ idf.py命令不可用"
+            echo "PATH环境变量: $PATH"
             ALL_EXIST=false
           fi
           
@@ -147,8 +157,8 @@ jobs:
             exit 1
           fi
           
-          # 设置 ESP-IDF 环境
-          echo -e "\n设置 ESP-IDF 环境..."
+          # 设置ESP-IDF环境
+          echo -e "\n设置ESP-IDF环境..."
           . /opt/esp-idf/export.sh
           
           # 清理旧构建
