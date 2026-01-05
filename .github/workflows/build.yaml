@@ -36,13 +36,11 @@ jobs:
           echo "=== 1. 检查并修复关键文件名 ==="
           cd xiaozhi-esp32
           
-          # 核心修复：将错误的 CMaket.lsts.txt 重命名为正确的 CMakeLists.txt
           if [ -f "CMaket.lsts.txt" ]; then
             echo "发现错误命名的文件：CMaket.lsts.txt，正在重命名为 CMakeLists.txt"
             mv "CMaket.lsts.txt" "CMakeLists.txt"
           fi
           
-          # 创建可能缺失的 OkNetists.txt 占位文件（如果需要）
           if [ ! -f "OkNetists.txt" ]; then
             echo "创建 OkNetists.txt 占位文件"
             echo "# Placeholder for build system" > OkNetists.txt
@@ -52,9 +50,7 @@ jobs:
           FILE_PATH="managed_components/espressif2022__esp_emote_gfx/src/core/gfx_refr.c"
           if [ -f "$FILE_PATH" ]; then
             echo "修复文件: $FILE_PATH"
-            # 修复格式字符串
             sed -i '117s/"Merged area \[%d\] into \[%d\], saved %lu pixels"/"Merged area [%lu] into [%lu], saved %lu pixels"/' "$FILE_PATH"
-            # 确保 string.h 存在
             if ! grep -q '#include <string.h>' "$FILE_PATH"; then
               sed -i '/#include <stdlib.h>/a #include <string.h>' "$FILE_PATH"
             fi
@@ -63,7 +59,6 @@ jobs:
           echo -e "\n=== 3. 验证项目结构 ==="
           echo "关键文件检查："
           ls -la CMakeLists.txt idf.py 2>/dev/null || echo "警告：未找到关键文件"
-          echo "当前目录: $(pwd)"
 
       - name: Setup ESP-IDF
         uses: espressif/esp-idf-ci-action@v1
@@ -74,50 +69,43 @@ jobs:
       - name: Build Firmware
         run: |
           echo "构建步骤开始..."
-          echo "工作空间: ${{ github.workspace }}"
-          
-          # 确保进入正确的项目目录
           PROJECT_DIR="${{ github.workspace }}/xiaozhi-esp32"
           cd "$PROJECT_DIR"
           echo "当前项目目录: $(pwd)"
           
-          # 最终验证
           echo -e "\n验证项目文件："
           ls -la CMakeLists.txt idf.py 2>/dev/null && echo "✅ 项目文件就绪" || echo "❌ 缺少关键项目文件"
           
           echo -e "\n开始执行 idf.py build..."
-          # 清理并设置目标
           rm -rf build sdkconfig
           idf.py set-target esp32c3
           
-          # 应用您的自定义配置
+          # ========== 关键修复部分开始 ==========
+          # 修复方法：使用多个简单的echo命令代替复杂的heredoc语法，避免YAML解析错误
           echo "" >> sdkconfig
-          cat << EOF >> sdkconfig
-# Append for ESP32-C3 SuperMini
-CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
-CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv"
-CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3
-CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4
-CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
-CONFIG_ESP_WIFI_RX_BA_WIN=4
-CONFIG_COMPILER_OPTIMIZATION_SIZE=y
-# CONFIG_WAKE_WORD_DISABLED is not set
-CONFIG_USE_ESP_WAKE_WORD=y
-CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y
-CONFIG_COMPILER_WARNINGS_AS_ERRORS=n
-EOF
+          echo "# Append for ESP32-C3 SuperMini" >> sdkconfig
+          echo "CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y" >> sdkconfig
+          echo "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y" >> sdkconfig
+          echo 'CONFIG_ESPTOOLPY_FLASHSIZE="4MB"' >> sdkconfig
+          echo "CONFIG_PARTITION_TABLE_CUSTOM=y" >> sdkconfig
+          echo 'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv"' >> sdkconfig
+          echo "CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3" >> sdkconfig
+          echo "CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4" >> sdkconfig
+          echo "CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n" >> sdkconfig
+          echo "CONFIG_ESP_WIFI_RX_BA_WIN=4" >> sdkconfig
+          echo "CONFIG_COMPILER_OPTIMIZATION_SIZE=y" >> sdkconfig
+          echo "# CONFIG_WAKE_WORD_DISABLED is not set" >> sdkconfig
+          echo "CONFIG_USE_ESP_WAKE_WORD=y" >> sdkconfig
+          echo "CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y" >> sdkconfig
+          echo "CONFIG_COMPILER_WARNINGS_AS_ERRORS=n" >> sdkconfig
+          # ========== 关键修复部分结束 ==========
           
-          # 重新配置并构建
           idf.py reconfigure
           idf.py build
           
-          # 验证输出
           if [ -f "build/xiaozhi.bin" ]; then
             echo -e "\n✅ 固件构建成功！"
-            ls -lh build/*.bin | head -5
+            ls -lh build/xiaozhi.bin
           else
             echo -e "\n❌ 构建失败，未找到输出文件"
             exit 1
