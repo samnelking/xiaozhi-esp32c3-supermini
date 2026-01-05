@@ -38,66 +38,22 @@ jobs:
       run: |
         echo "=== 开始修复格式字符串问题 ==="
         
-        # 方法1：使用 Python 脚本修复
-        cat > /tmp/fix_format.py << 'EOF'
-import os
-import re
-import glob
-
-def fix_file(filepath):
-    with open(filepath, 'r') as f:
-        content = f.read()
-    
-    # 修复 [%d] 为 [%lu]
-    new_content = content.replace('[%d]', '[%lu]')
-    
-    # 修复特定的 Merged area 行
-    lines = new_content.split('\n')
-    for i in range(len(lines)):
-        if 'Merged area' in lines[i]:
-            # 替换 %d 为 %lu
-            lines[i] = lines[i].replace('%d', '%lu')
-    
-    new_content = '\n'.join(lines)
-    
-    if new_content != content:
-        with open(filepath, 'w') as f:
-            f.write(new_content)
-        print(f"修复了: {filepath}")
-        return True
-    return False
-
-# 查找并修复
-for root, dirs, files in os.walk('.'):
-    for file in files:
-        if file.endswith('.c'):
-            filepath = os.path.join(root, file)
-            try:
-                with open(filepath, 'r') as f:
-                    if 'Merged area' in f.read():
-                        fix_file(filepath)
-            except:
-                pass
-EOF
-        
-        cd xiaozhi-esp32
-        python3 /tmp/fix_format.py
-        cd ..
-        
-        # 方法2：直接使用 sed 修复已知问题文件
-        echo "=== 使用 sed 修复 ==="
+        # 直接使用 sed 修复已知问题文件
         find xiaozhi-esp32 -name "gfx_refr.c" -type f | while read file; do
           echo "检查文件: $file"
           if grep -q "Merged area" "$file"; then
             echo "修复 $file 中的格式字符串..."
+            # 先备份
+            cp "$file" "${file}.bak"
+            # 修复 [%d] 为 [%lu]
             sed -i 's/\[%d\]/\[%lu\]/g' "$file"
+            # 修复行中的 %d
             sed -i '/Merged area/s/%d/%lu/g' "$file"
             echo "修复完成"
           fi
         done
         
         echo "=== 修复完成 ==="
-      timeout-minutes: 10
 
     - name: Install ESP-IDF
       run: |
@@ -158,8 +114,8 @@ EOF
         idf.py reconfigure
         
         echo "开始构建..."
-        # 构建并忽略格式字符串警告
-        idf.py -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build 2>&1 | grep -v "Werror=format" || true
+        # 构建
+        idf.py -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build
         
         # 检查构建结果
         if [ -f "build/xiaozhi.bin" ]; then
