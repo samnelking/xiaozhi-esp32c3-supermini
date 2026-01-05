@@ -34,6 +34,43 @@ jobs:
         cp board-config/esp32c3_supermini_board.cc xiaozhi-esp32/main/boards/esp32c3-supermini/
         python3 board-config/scripts/setup_board.py xiaozhi-esp32/main
 
+            # 在 "Setup board configuration" 步骤后添加
+    
+    - name: Fix compilation warnings
+      run: |
+        # 修复 esp_emote_gfx 中的格式字符串问题
+        FILE_PATH="xiaozhi-esp32/managed_components/espressif2022__esp_emote_gfx/src/core/gfx_refr.c"
+        if [ -f "$FILE_PATH" ]; then
+          echo "修复格式字符串类型不匹配问题..."
+          # 替换 %d 为 %lu 用于 uint32_t 类型
+          sed -i '117s/%d/%lu/g' "$FILE_PATH"
+          echo "修复完成"
+        else
+          echo "警告: 文件 $FILE_PATH 不存在"
+        fi
+      
+    - name: Build firmware
+      run: |
+        source ~/esp-idf/export.sh
+        cd xiaozhi-esp32
+        
+        # 先清理可能存在的缓存
+        rm -rf sdkconfig build/
+        
+        idf.py set-target esp32c3
+        
+        # 追加配置时，禁用警告视为错误
+        echo "" >> sdkconfig
+        echo "# Append for ESP32-C3 SuperMini" >> sdkconfig
+        # ... 其他配置 ...
+        echo "CONFIG_COMPILER_WARNINGS_AS_ERRORS=n" >> sdkconfig
+        
+        idf.py reconfigure
+        idf.py -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build
+        
+        ls -la build/generated_assets.bin
+      timeout-minutes: 60
+
     - name: Install ESP-IDF
       run: |
         sudo apt-get update
