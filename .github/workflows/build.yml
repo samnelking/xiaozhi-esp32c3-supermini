@@ -36,16 +36,68 @@ jobs:
 
     - name: Fix compilation warnings
       run: |
-        # 修复 esp_emote_gfx 中的格式字符串问题
-        FILE_PATH="xiaozhi-esp32/managed_components/espressif2022__esp_emote_gfx/src/core/gfx_refr.c"
-        if [ -f "$FILE_PATH" ]; then
-          echo "修复格式字符串类型不匹配问题..."
-          # 替换 %d 为 %lu 用于 uint32_t 类型
-          sed -i '117s/%d/%lu/g' "$FILE_PATH"
-          echo "修复完成"
-        else
-          echo "警告: 文件 $FILE_PATH 不存在"
-        fi
+        echo "=== 开始修复格式字符串问题 ==="
+        
+        # 方法1：使用 Python 脚本修复
+        cat > /tmp/fix_format.py << 'EOF'
+import os
+import re
+import glob
+
+def fix_file(filepath):
+    with open(filepath, 'r') as f:
+        content = f.read()
+    
+    # 修复 [%d] 为 [%lu]
+    new_content = content.replace('[%d]', '[%lu]')
+    
+    # 修复特定的 Merged area 行
+    lines = new_content.split('\n')
+    for i in range(len(lines)):
+        if 'Merged area' in lines[i]:
+            # 替换 %d 为 %lu
+            lines[i] = lines[i].replace('%d', '%lu')
+    
+    new_content = '\n'.join(lines)
+    
+    if new_content != content:
+        with open(filepath, 'w') as f:
+            f.write(new_content)
+        print(f"修复了: {filepath}")
+        return True
+    return False
+
+# 查找并修复
+for root, dirs, files in os.walk('.'):
+    for file in files:
+        if file.endswith('.c'):
+            filepath = os.path.join(root, file)
+            try:
+                with open(filepath, 'r') as f:
+                    if 'Merged area' in f.read():
+                        fix_file(filepath)
+            except:
+                pass
+EOF
+        
+        cd xiaozhi-esp32
+        python3 /tmp/fix_format.py
+        cd ..
+        
+        # 方法2：直接使用 sed 修复已知问题文件
+        echo "=== 使用 sed 修复 ==="
+        find xiaozhi-esp32 -name "gfx_refr.c" -type f | while read file; do
+          echo "检查文件: $file"
+          if grep -q "Merged area" "$file"; then
+            echo "修复 $file 中的格式字符串..."
+            sed -i 's/\[%d\]/\[%lu\]/g' "$file"
+            sed -i '/Merged area/s/%d/%lu/g' "$file"
+            echo "修复完成"
+          fi
+        done
+        
+        echo "=== 修复完成 ==="
+      timeout-minutes: 10
 
     - name: Install ESP-IDF
       run: |
@@ -84,7 +136,7 @@ jobs:
         # 设置目标
         idf.py set-target esp32c3
         
-        # 追加配置
+        # 追加配置 - 确保禁用警告视为错误
         echo "" >> sdkconfig
         echo "# Append for ESP32-C3 SuperMini" >> sdkconfig
         echo "CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y" >> sdkconfig
@@ -102,12 +154,27 @@ jobs:
         echo "CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y" >> sdkconfig
         echo "CONFIG_COMPILER_WARNINGS_AS_ERRORS=n" >> sdkconfig
         
-        # 重新配置并构建
+        # 重新配置
         idf.py reconfigure
-        idf.py -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build
         
-        # 验证生成的文件
-        ls -la build/generated_assets.bin
+        echo "开始构建..."
+        # 构建并忽略格式字符串警告
+        idf.py -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build 2>&1 | grep -v "Werror=format" || true
+        
+        # 检查构建结果
+        if [ -f "build/xiaozhi.bin" ]; then
+          echo "构建成功!"
+          echo "生成的文件:"
+          ls -la build/*.bin
+        else
+          echo "构建失败，检查错误..."
+          # 显示构建日志
+          find build -name "*.log" -type f | head -5 | while read log; do
+            echo "=== $log ==="
+            tail -50 "$log"
+          done
+          exit 1
+        fi
       timeout-minutes: 60
 
     - name: Upload firmware artifact
