@@ -20,7 +20,7 @@ jobs:
     - name: Checkout xiaozhi-esp32
       uses: actions/checkout@v4
       with:
-        repository: 78/xiaozhi-esp32
+        repository: samnelking/xiaozhi-esp32
         path: xiaozhi-esp32
         submodules: recursive
         fetch-depth: 1
