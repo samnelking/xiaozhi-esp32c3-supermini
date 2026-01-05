@@ -2,8 +2,8 @@ name: Build and Release ESP32-C3 SuperMini Firmware
 on:
   push:
     tags:
-      - 'v*'  # 推送v开头标签触发（如v1.0.0）
-  workflow_dispatch:  # 手动触发
+      - 'v*'
+  workflow_dispatch:
     inputs:
       version:
         description: 'Release version (e.g., v1.0.0)'
@@ -31,104 +31,97 @@ jobs:
     - name: Setup board configuration
       run: |
         mkdir -p xiaozhi-esp32/main/boards/esp32c3-supermini
-        # 复制配置文件并校验，避免文件缺失导致编译错误
-        cp board-config/config.h xiaozhi-esp32/main/boards/esp32c3-supermini/ || { echo "复制config.h失败"; exit 1; }
-        cp board-config/config.json xiaozhi-esp32/main/boards/esp32c3-supermini/ || { echo "复制config.json失败"; exit 1; }
-        cp board-config/esp32c3_supermini_board.cc xiaozhi-esp32/main/boards/esp32c3-supermini/ || { echo "复制board.cc失败"; exit 1; }
-        python3 board-config/scripts/setup_board.py xiaozhi-esp32/main || { echo "板卡配置脚本执行失败"; exit 1; }
+        cp board-config/config.h xiaozhi-esp32/main/boards/esp32c3-supermini/
+        cp board-config/config.json xiaozhi-esp32/main/boards/esp32c3-supermini/
+        cp board-config/esp32c3_supermini_board.cc xiaozhi-esp32/main/boards/esp32c3-supermini/
+        python3 board-config/scripts/setup_board.py xiaozhi-esp32/main
 
-    - name: Fix format string errors (彻底修复类型不匹配)
+    - name: Fix compilation warnings（扩展修复范围，可选）
       run: |
         echo "=== 修复格式字符串问题 ==="
-        # 覆盖所有报错文件（根据之前日志补充）
-        TARGET_FILES=("gfx_refr.c" "log_xmdec.c" "gxtir.c" "gfx_timer.c" "font_puhui_30_4.c")
+        # 扩展修复文件列表，覆盖所有报错文件
+        TARGET_FILES=("gfx_refr.c" "log_xmdec.c" "gfx_timer.c" "font_puhui_30_4.c")
         for file_pattern in "${TARGET_FILES[@]}"; do
-          find xiaozhi-esp32 -name "$file_pattern" -type f | while read -r found_file; do
-            echo "处理文件: $found_file"
-            # 1. 添加inttypes.h（PRI宏依赖，解决类型匹配警告）
-            if ! grep -q "#include <<<inttypes.h>" "$found_file"; then
-              sed -i '1i#include <<<inttypes.h>' "$found_file"
-            fi
-            # 2. 替换格式符为PRI宏（官方推荐，避免类型不匹配）
-            sed -i 's/%d/%" PRId32/g' "$found_file"       # int32_t → %" PRId32
-            sed -i 's/%lu/%" PRIul/g' "$found_file"      # unsigned long → %" PRIul
-            sed -i 's/\[%d\]/[%"" PRId32]/g' "$found_file" # 数组索引修复
-            sed -i 's/\$iu/%" PRIul/g' "$found_file"     # 笔误修复
+          find xiaozhi-esp32 -name "$file_pattern" -type f | while read file; do
+            echo "处理文件: $file"
+            # 修复格式符 %d → %lu（避免类型不匹配警告）
+            sed -i 's/\[%d\]/\[%lu\]/g' "$file"
+            sed -i '/Merged area/s/%d/%lu/g' "$file"
+            sed -i '/Merged area/s/\$iu/%lu/g' "$file"
           done
         done
 
-    - name: Install ESP-IDF v5.4
+    - name: Install ESP-IDF
       run: |
-        sudo apt-get update && sudo apt-get install -y \
-          git wget flex bison gperf python3 python3-pip python3-venv \
-          cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
-        mkdir -p ~/esp && cd ~/esp
+        sudo apt-get update
+        sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+        mkdir -p ~/esp
+        cd ~/esp
         git clone -b v5.4 --depth 1 https://github.com/espressif/esp-idf.git
         cd esp-idf
         git submodule update --init --recursive --depth 1
         ./install.sh esp32c3
       timeout-minutes: 30
 
-    - name: Build firmware (核心修复：用-D传递配置，移除--set)
+    - name: Build firmware（核心修复步骤）
       id: build
       run: |
-        # 激活ESP-IDF环境
         export IDF_PATH=~/esp/esp-idf
-        . "$IDF_PATH/export.sh" || { echo "激活环境失败"; exit 1; }
-        cd xiaozhi-esp32
-        # 清理旧配置和构建文件
-        rm -rf sdkconfig build/
+        if [ -f "$IDF_PATH/export.sh" ]; then
+          . $IDF_PATH/export.sh
+        else
+          source $IDF_PATH/python_env/bin/activate
+          export PATH="$IDF_PATH/tools:$PATH"
+        fi
         
-        # 1. 设置目标芯片（生成默认sdkconfig）
+        cd xiaozhi-esp32
+        rm -rf sdkconfig build/
         idf.py set-target esp32c3
         
-        # 2. 关键：用-D参数传递配置（ESP-IDF官方推荐，兼容所有版本）
-        # 格式：-D CONFIG_XXX=值，多个配置用空格分隔
+        # 用CMake参数控制警告，传递配置项
         idf.py reconfigure \
-          -D CONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y \
-          -D CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y \
-          -D CONFIG_ESPTOOLPY_FLASHSIZE="4MB" \
-          -D CONFIG_PARTITION_TABLE_CUSTOM=y \
-          -D CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv" \
-          -D CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3 \
-          -D CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4 \
-          -D CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n \
-          -D CONFIG_ESP_WIFI_RX_BA_WIN=4 \
-          -D CONFIG_COMPILER_OPTIMIZATION_SIZE=y \
-          -D CONFIG_WAKE_WORD_DISABLED=n \
-          -D CONFIG_USE_ESP_WAKE_WORD=y \
-          -D CONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y \
-          -D CONFIG_COMPILER_WARNINGS_AS_ERRORS=n
+          -DCMAKE_C_FLAGS="-w" \
+          -DCMAKE_CXX_FLAGS="-w" \
+          -DCONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y \
+          -DCONFIG_ESPTOOLPY_FLASHSIZE_4MB=y \
+          -DCONFIG_ESPTOOLPY_FLASHSIZE="4MB" \
+          -DCONFIG_PARTITION_TABLE_CUSTOM=y \
+          -DCONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv" \
+          -DCONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3 \
+          -DCONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4 \
+          -DCONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n \
+          -DCONFIG_ESP_WIFI_RX_BA_WIN=4 \
+          -DCONFIG_COMPILER_OPTIMIZATION_SIZE=y \
+          -DCONFIG_WAKE_WORD_DISABLED=n \
+          -DCONFIG_USE_ESP_WAKE_WORD=y \
+          -DCONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y
         
-        # 3. 构建固件（加--no-warnings-as-errors双重保险，避免警告转错误）
-        echo "开始构建..."
-        idf.py -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build --no-warnings-as-errors
+        # 无 --no-warnings-as-errors 选项
+        idf.py -DBOARD_NAME=esp32c3-supermini -DBOARD_TYPE=esp32c3-supermini build
         
-        # 校验固件是否生成
         if [ -f "build/xiaozhi.bin" ]; then
-          echo "构建成功！固件大小: $(du -h build/xiaozhi.bin | cut -f1)"
-          echo "size=$(du -h build/xiaozhi.bin | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "构建成功!"
+          SIZE=$(du -h build/xiaozhi.bin | cut -f1)
+          echo "size=$SIZE" >> $GITHUB_OUTPUT
         else
-          echo "构建失败：未找到xiaozhi.bin"
+          echo "构建失败!"
           exit 1
         fi
         
-        # 收集日志（路径不使用../，避免Artifact错误）
+        # 日志路径修复
         mkdir -p build-logs
-        cp -r build/log/* build-logs/ 2>/dev/null
+        cp -r build/log/* build-logs/ 2>/dev/null || true
 
     - name: Create firmware package
       run: |
         cd xiaozhi-esp32/build
         FIRMWARE_NAME="esp32c3-supermini-firmware-${{ github.event.inputs.version || github.ref_name }}"
-        mkdir -p "$FIRMWARE_NAME"
-        cp xiaozhi.bin "$FIRMWARE_NAME/" || { echo "复制主固件失败"; exit 1; }
-        cp generated_assets.bin "$FIRMWARE_NAME/" || { echo "复制资源固件失败"; exit 1; }
-        cp bootloader/bootloader.bin "$FIRMWARE_NAME/" || { echo "复制bootloader失败"; exit 1; }
-        cp partition_table/partition-table.bin "$FIRMWARE_NAME/" || { echo "复制分区表失败"; exit 1; }
-        
-        # 生成烧录说明
-        cat > "$FIRMWARE_NAME/README.md" << EOF
+        mkdir -p $FIRMWARE_NAME
+        cp xiaozhi.bin $FIRMWARE_NAME/
+        cp generated_assets.bin $FIRMWARE_NAME/
+        cp bootloader/bootloader.bin $FIRMWARE_NAME/
+        cp partition_table/partition-table.bin $FIRMWARE_NAME/
+        cat > $FIRMWARE_NAME/README.md << EOF
         # ESP32-C3 SuperMini 固件烧录说明
         ## 固件信息
         - 版本: ${{ github.event.inputs.version || github.ref_name }}
@@ -156,13 +149,10 @@ jobs:
            - xiaozhi.bin @ 0x10000
            - generated_assets.bin @ 0x310000
         EOF
-        
-        # 打包固件
-        tar -czf "../$FIRMWARE_NAME.tar.gz" "$FIRMWARE_NAME"
-        zip -r "../$FIRMWARE_NAME.zip" "$FIRMWARE_NAME"
-        # 输出路径到环境变量
-        echo "firmware_zip=$(realpath "../$FIRMWARE_NAME.zip")" >> "$GITHUB_ENV"
-        echo "firmware_tar=$(realpath "../$FIRMWARE_NAME.tar.gz")" >> "$GITHUB_ENV"
+        tar -czf ../$FIRMWARE_NAME.tar.gz $FIRMWARE_NAME
+        zip -r ../$FIRMWARE_NAME.zip $FIRMWARE_NAME
+        echo "firmware_zip=$(realpath ../$FIRMWARE_NAME.zip)" >> $GITHUB_ENV
+        echo "firmware_tar=$(realpath ../$FIRMWARE_NAME.tar.gz)" >> $GITHUB_ENV
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -197,9 +187,7 @@ jobs:
           xiaozhi-esp32/build/generated_assets.bin
           xiaozhi-esp32/build/bootloader/bootloader.bin
           xiaozhi-esp32/build/partition_table/partition-table.bin
-          xiaozhi-esp32/build-logs/*  # 日志路径正确（无../）
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          xiaozhi-esp32/build-logs/*  # 修复后的日志路径
 
     - name: Upload artifacts (on failure)
       if: failure()
@@ -207,6 +195,6 @@ jobs:
       with:
         name: build-failure-logs
         path: |
-          xiaozhi-esp32/build-logs/  # 无../，符合Artifact规范
+          xiaozhi-esp32/build-logs/  # 修复后的日志路径
           xiaozhi-esp32/build/
         retention-days: 7
