@@ -39,7 +39,7 @@ jobs:
           
           # 1. 首先列出当前目录文件，查看真实情况
           echo "当前目录文件列表:"
-          ls -la | grep -E "(CMake|OkNet|idf)" || echo "未找到相关文件"
+          ls -la | grep -E "(CMake|OkNet)" || echo "未找到相关文件"
           
           # 2. 修复文件名错误 - 使用精确匹配
           if ls | grep -q "CMaket.lsts.txt"; then
@@ -73,16 +73,19 @@ jobs:
             find . -name "gfx_refr.c" -type f | head -5
           fi
           
-          # 6. 验证修复结果
+          # 6. 验证修复结果（修正：idf.py 不在项目目录是正常的）
           echo -e "\n验证修复结果:"
           echo "关键文件检查:"
-          for file in CMakeLists.txt OkNetists.txt idf.py; do
+          for file in CMakeLists.txt OkNetists.txt; do
             if [ -f "$file" ]; then
               echo "✅ $file 存在"
             else
               echo "❌ $file 不存在"
             fi
           done
+          
+          # idf.py 在 ESP-IDF 安装目录，不在项目目录
+          echo "ℹ️ idf.py 应该在 ESP-IDF 安装目录 (/opt/esp-idf/tools/)"
 
       - name: Install ESP-IDF v5.4
         run: |
@@ -110,13 +113,13 @@ jobs:
           cd "$PROJECT_DIR"
           echo "当前目录: $(pwd)"
           
-          # 验证关键文件 - 使用更详细的检查
+          # 验证关键文件 - 修正：不再检查 idf.py
           echo -e "\n验证关键文件:"
           echo "当前目录内容:"
           ls -la | head -20
           
-          echo -e "\n检查特定文件:"
-          REQUIRED_FILES=("CMakeLists.txt" "OkNetists.txt" "idf.py")
+          echo -e "\n检查项目必需文件:"
+          REQUIRED_FILES=("CMakeLists.txt" "OkNetists.txt")
           ALL_EXIST=true
           
           for file in "${REQUIRED_FILES[@]}"; do
@@ -128,10 +131,19 @@ jobs:
             fi
           done
           
+          # 检查 idf.py 是否在 PATH 中可用
+          echo -e "\n检查 idf.py 命令可用性:"
+          if command -v idf.py >/dev/null 2>&1; then
+            echo "✅ idf.py 命令可用"
+            echo "idf.py 位置: $(which idf.py)"
+          else
+            echo "❌ idf.py 命令不可用"
+            echo "PATH 环境变量: $PATH"
+            ALL_EXIST=false
+          fi
+          
           if [ "$ALL_EXIST" = false ]; then
-            echo -e "\n错误: 缺少必需文件"
-            echo "尝试查找 CMakeLists.txt 的变体:"
-            find . -name "*CMake*" -type f 2>/dev/null || true
+            echo -e "\n错误: 缺少必需文件或命令"
             exit 1
           fi
           
@@ -147,7 +159,7 @@ jobs:
           echo "设置目标芯片: esp32c3"
           idf.py set-target esp32c3
           
-          # 应用自定义配置 - 使用单个echo命令，避免YAML多行字符串问题
+          # 应用自定义配置
           echo -e "\n应用自定义配置..."
           echo -e "\n# Append for ESP32-C3 SuperMini\nCONFIG_BOARD_TYPE_ESP32C3_SUPERMINI=y\nCONFIG_ESPTOOLPY_FLASHSIZE_4MB=y\nCONFIG_ESPTOOLPY_FLASHSIZE=\"4MB\"\nCONFIG_PARTITION_TABLE_CUSTOM=y\nCONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"partitions/v2/4m.csv\"\nCONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3\nCONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4\nCONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n\nCONFIG_ESP_WIFI_RX_BA_WIN=4\nCONFIG_COMPILER_OPTIMIZATION_SIZE=y\n# CONFIG_WAKE_WORD_DISABLED is not set\nCONFIG_USE_ESP_WAKE_WORD=y\nCONFIG_SR_WN_WN9S_NIHAOXIAOZHI=y\nCONFIG_COMPILER_WARNINGS_AS_ERRORS=n" >> sdkconfig
           
